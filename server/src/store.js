@@ -78,7 +78,7 @@ async function issueMembership() {
   const now = new Date();
   return {
     id: await nextMembershipId(),
-    tier: "Действительный член",
+    tier: "Действующий участник",
     status: "active",
     since: now.toISOString(),
     renewsAt: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 365).toISOString(),
