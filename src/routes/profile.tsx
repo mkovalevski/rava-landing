@@ -219,11 +219,33 @@ function ProfileTab({ user, onSaved }: { user: User; onSaved: (u: User) => void 
 
 /* ── Security ─────────────────────────────────────────────────────────────── */
 
+const DELETE_WORD = "УДАЛИТЬ";
+
 function SecurityTab({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const { deleteAccount } = useAuth();
+  const navigate = useNavigate();
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const [confirming, setConfirming] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [delBusy, setDelBusy] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
+
+  async function onDelete() {
+    if (confirmText.trim().toUpperCase() !== DELETE_WORD) return;
+    setDelBusy(true);
+    setDelError(null);
+    try {
+      await deleteAccount();
+      await navigate({ to: "/" });
+    } catch (err) {
+      setDelError(err instanceof ApiError ? err.message : "Не удалось удалить аккаунт");
+      setDelBusy(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -318,6 +340,54 @@ function SecurityTab({ user, onLogout }: { user: User; onLogout: () => void }) {
           <p className="pf-muted">Вы выйдете из кабинета на этом устройстве.</p>
         </div>
         <button className="btn btn-ghost" onClick={onLogout}>Выйти из аккаунта</button>
+      </div>
+
+      <div className="pf-panel pf-danger pf-danger-delete">
+        <div>
+          <h3 className="pf-panel-title">Удалить аккаунт</h3>
+          <p className="pf-muted">
+            Безвозвратно удалит профиль, членскую карту, историю оплат и коды доступа
+            {user.access.status === "active" ? ", а также исключит вас из Telegram-сообщества" : ""}.
+            Восстановить аккаунт будет невозможно.
+          </p>
+        </div>
+
+        {!confirming ? (
+          <button className="btn btn-accent" onClick={() => setConfirming(true)}>
+            Удалить аккаунт
+          </button>
+        ) : (
+          <div className="pf-del-confirm">
+            <AuthField
+              label={`Введите «${DELETE_WORD}», чтобы подтвердить`}
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={DELETE_WORD}
+              autoComplete="off"
+            />
+            {delError && <div className="auth-error" role="alert">{delError}</div>}
+            <div className="pf-del-actions">
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setConfirming(false);
+                  setConfirmText("");
+                  setDelError(null);
+                }}
+                disabled={delBusy}
+              >
+                Отмена
+              </button>
+              <button
+                className="btn btn-accent"
+                onClick={onDelete}
+                disabled={delBusy || confirmText.trim().toUpperCase() !== DELETE_WORD}
+              >
+                {delBusy ? <span className="spinner" aria-hidden="true" /> : "Удалить навсегда"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

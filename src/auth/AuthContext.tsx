@@ -17,6 +17,7 @@ type AuthValue = {
   login: (email: string, password: string) => Promise<User>;
   register: (name: string, email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   refresh: () => Promise<void>;
   setUser: (user: User) => void;
 };
@@ -65,7 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const value: AuthValue = { user, status, login, register, logout, refresh, setUser };
+  // Permanent: the server deletes the account and clears the session cookie.
+  const deleteAccount = useCallback(async () => {
+    await api.deleteAccount();
+    setUser(null);
+    setStatus("guest");
+  }, []);
+
+  const value: AuthValue = { user, status, login, register, logout, deleteAccount, refresh, setUser };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

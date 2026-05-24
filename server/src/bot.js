@@ -12,6 +12,7 @@
 //     they pay again.
 
 import TelegramBot from "node-telegram-bot-api";
+import { SocksProxyAgent } from "socks-proxy-agent";
 
 import { config } from "./config.js";
 import { store } from "./store.js";
@@ -28,6 +29,21 @@ export function startBot() {
     return null;
   }
 
+  // Route all Telegram API traffic through a SOCKS proxy (e.g. an Xray/VLESS
+  // sidecar) when configured — needed where Telegram is blocked. A malformed
+  // proxy URL must not take down the whole API: fall back to a direct connection.
+  let request;
+  if (config.telegram.proxy) {
+    try {
+      request = { agent: new SocksProxyAgent(config.telegram.proxy) };
+      console.log(`  Telegram via proxy: ${config.telegram.proxy}`);
+    } catch (err) {
+      console.error(
+        `  [bot] invalid TELEGRAM_PROXY "${config.telegram.proxy}" (${err.message}) — connecting directly`,
+      );
+    }
+  }
+
   bot = new TelegramBot(config.telegram.token, {
     polling: {
       // chat_join_request is excluded from getUpdates by default — it must be
@@ -37,6 +53,7 @@ export function startBot() {
         allowed_updates: JSON.stringify(["message", "callback_query", "chat_join_request"]),
       },
     },
+    request,
   });
 
   bot.getMe()
@@ -163,14 +180,28 @@ async function redeem(msg) {
   );
 }
 
+// Remove a member from the group: ban + immediately unban, so they can rejoin
+// later if they pay again. No-op if the bot or group isn't configured. Reused by
+// the expiry sweeper and by permanent account deletion.
+export async function removeFromGroup(telegramId) {
+  if (!bot || !config.telegram.groupId || !telegramId) return false;
+  try {
+    await bot.banChatMember(config.telegram.groupId, telegramId);
+    await bot.unbanChatMember(config.telegram.groupId, telegramId, { only_if_banned: true });
+    return true;
+  } catch (err) {
+    console.error(`[bot] removeFromGroup(${telegramId}) failed:`, err.message);
+    return false;
+  }
+}
+
 function startKickScheduler() {
   const sweep = async () => {
     for (const user of await store.listExpiredMembers()) {
       const tgId = user.access.telegramId;
       try {
         if (config.telegram.groupId && tgId) {
-          await bot.banChatMember(config.telegram.groupId, tgId);
-          await bot.unbanChatMember(config.telegram.groupId, tgId, { only_if_banned: true });
+          await removeFromGroup(tgId);
           await bot
             .sendMessage(
               tgId,

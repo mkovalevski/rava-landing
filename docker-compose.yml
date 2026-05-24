@@ -1,7 +1,8 @@
 # Full RAVA stack: PostgreSQL + backend (API & Telegram bot) + nginx-served SPA.
 #
-#   docker compose up --build        # start everything → http://localhost:8080
-#   docker compose up -d db          # just the DB (for local `npm run dev`)
+#   docker compose up --build               # everything → http://<host-ip>:5199
+#   docker compose up -d db                 # just the DB (for local `npm run dev`)
+#   docker compose --profile proxy up -d    # also start the Xray/VLESS sidecar
 #
 # Secrets (Yandex / Telegram / JWT) are read from ./server/.env at runtime.
 # Run EITHER this stack OR a local `npm start` — not both: one Telegram poller
@@ -32,9 +33,10 @@ services:
       # These override the dev values in .env for the compose network.
       PORT: 3001
       DATABASE_URL: postgres://rava:rava@db:5432/rava
-      APP_URL: http://localhost:8080 # single origin (nginx). For real HTTPS prod,
-      # set this to your https:// URL (the cookie becomes Secure automatically)
-      # and point YANDEX_REDIRECT_URI at <APP_URL>/api/auth/yandex/callback.
+      # Must match how you open the site. Set to your LAN/public IP or domain.
+      # Over HTTPS the session cookie becomes Secure automatically; if you enable
+      # Yandex, point YANDEX_REDIRECT_URI at <APP_URL>/api/auth/yandex/callback.
+      APP_URL: http://192.168.31.145:5199
     depends_on:
       db:
         condition: service_healthy
@@ -43,9 +45,20 @@ services:
   web:
     build: .
     ports:
-      - "8080:80"
+      - "5199:80" # open the site at http://<host-ip>:5199
     depends_on:
       - server
+    restart: unless-stopped
+
+  # Optional VLESS proxy for the Telegram bot (regions where Telegram is blocked).
+  # Fill xray/config.json, set TELEGRAM_PROXY=socks5h://xray:1080 in server/.env,
+  # then start with:  docker compose --profile proxy up -d --build
+  xray:
+    image: ghcr.io/xtls/xray-core:latest
+    command: ["run", "-config", "/etc/xray/config.json"]
+    volumes:
+      - ./xray/config.json:/etc/xray/config.json:ro
+    profiles: ["proxy"]
     restart: unless-stopped
 
 volumes:

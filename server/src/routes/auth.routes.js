@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { config } from "../config.js";
+import { removeFromGroup } from "../bot.js";
 import { store } from "../store.js";
 import {
   clearAuthCookie,
@@ -62,6 +63,19 @@ authRouter.get("/me", async (req, res) => {
 });
 
 authRouter.post("/logout", (req, res) => {
+  clearAuthCookie(res);
+  res.json({ ok: true });
+});
+
+// ── Permanently delete the account ────────────────────────────────────────────
+// Irreversible: removes the user row (cascading payments + access codes) and, if
+// they currently hold group access, kicks them from the Telegram group.
+authRouter.delete("/account", requireAuth, async (req, res) => {
+  const access = req.user.access ?? {};
+  if (access.status === "active" && access.telegramId) {
+    await removeFromGroup(access.telegramId);
+  }
+  await store.deleteUser(req.user.id);
   clearAuthCookie(res);
   res.json({ ok: true });
 });

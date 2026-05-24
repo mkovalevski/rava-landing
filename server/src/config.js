@@ -50,6 +50,9 @@ export const config = {
     token: process.env.TELEGRAM_BOT_TOKEN || "",
     groupId: process.env.TELEGRAM_GROUP_ID || "",
     username: process.env.TELEGRAM_BOT_USERNAME || null, // filled from getMe at startup
+    // Optional SOCKS5 proxy for ALL Telegram API traffic — e.g. an Xray/VLESS
+    // sidecar (socks5h://xray:1080) for regions where Telegram is blocked.
+    proxy: (process.env.TELEGRAM_PROXY || "").trim(),
   },
 };
 

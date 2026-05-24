@@ -124,6 +124,13 @@ export const store = {
     return rowToUser(rows[0]);
   },
 
+  // Permanently delete a user. The FK ON DELETE CASCADE removes their payments
+  // and access codes too. Returns true if a row was actually deleted.
+  async deleteUser(id) {
+    const { rowCount } = await query("DELETE FROM users WHERE id = $1", [id]);
+    return rowCount > 0;
+  },
+
   // Generic scalar update (used for password / Yandex linking). Whitelisted keys.
   async update(id, patch) {
     const map = {

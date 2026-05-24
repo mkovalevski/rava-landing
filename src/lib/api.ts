@@ -99,6 +99,7 @@ export const api = {
   register: (body: { email: string; password: string; name: string }) =>
     request<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" }),
+  deleteAccount: () => request<{ ok: true }>("/auth/account", { method: "DELETE" }),
   changePassword: (body: { currentPassword?: string; newPassword: string }) =>
     request<{ ok: true }>("/auth/password", { method: "POST", body: JSON.stringify(body) }),
   updateProfile: (body: Partial<Profile> & { name?: string }) =>
