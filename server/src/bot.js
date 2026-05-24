@@ -126,8 +126,21 @@ async function approveJoin(req) {
   }
 }
 
+// Pull a RAVA-XXXX-XXXX token out of whatever the user sent (tolerates extra
+// text, surrounding spaces, lowercase, smart-dashes). Falls back to the trimmed
+// input so a bare code still works.
+function extractCode(text) {
+  const cleaned = String(text || "").replace(/[‐-―−]/g, "-"); // normalise dashes
+  const m = cleaned.toUpperCase().match(/RAVA-[A-Z0-9]{4}-[A-Z0-9]{4}/);
+  return m ? m[0] : cleaned.trim();
+}
+
 async function redeem(msg) {
-  const code = await store.findActiveCode(msg.text);
+  const typed = extractCode(msg.text);
+  const code = await store.findActiveCode(typed);
+  console.log(
+    `[bot] redeem from tg ${msg.from?.id}: received ${JSON.stringify(msg.text)} → "${typed}" → ${code ? "FOUND (active)" : "NOT FOUND"}`,
+  );
   if (!code) {
     return bot.sendMessage(
       msg.chat.id,

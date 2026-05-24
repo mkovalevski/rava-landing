@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { useAuth } from "@/auth/AuthContext";
@@ -409,6 +409,7 @@ function CommunityTab() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const codeRef = useRef<HTMLSpanElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -483,9 +484,38 @@ function CommunityTab() {
   }
 
   function copyCode(code: string) {
-    void navigator.clipboard?.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+    const flash = () => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    };
+    // navigator.clipboard only exists in secure contexts (https / localhost).
+    // The cabinet is usually opened over plain http://<ip>, where it's
+    // undefined — fall back to selecting the visible code + execCommand.
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(code).then(flash, () => {
+        if (selectAndCopy()) flash();
+      });
+      return;
+    }
+    if (selectAndCopy()) flash();
+  }
+
+  // Select the actual on-screen code element and copy it. Most reliable path on
+  // http: if the browser still blocks programmatic copy, the code stays
+  // selected so the user can just press Ctrl/Cmd+C.
+  function selectAndCopy(): boolean {
+    const el = codeRef.current;
+    if (!el) return false;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    try {
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    }
   }
 
   if (loading || !data) {
@@ -551,7 +581,7 @@ function CommunityTab() {
             <div className="pf-code-block">
               <span className="pf-code-cap">Ваш одноразовый код</span>
               <div className="pf-code">
-                <span className="pf-code-value mono">{code.code}</span>
+                <span ref={codeRef} className="pf-code-value mono" style={{ userSelect: "all" }}>{code.code}</span>
                 <button className="pf-copy" onClick={() => copyCode(code.code)}>
                   {copied ? "Скопировано ✓" : "Копировать"}
                 </button>
