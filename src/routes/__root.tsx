@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
 
 import { Nav } from "@/components/layout/Nav";
@@ -13,6 +13,11 @@ const SPLASH_KEY = "rava_splash_seen";
 // Auth / app routes own their full chrome — no marketing nav, footer or splash.
 const APP_ROUTES = ["/login", "/register", "/profile"];
 
+// External RAVA bundle — loaded on every page EXCEPT the auth screens.
+const AUTH_ROUTES = ["/login", "/register"];
+const RAVA_BUNDLE_ID = "rava-bundle";
+const RAVA_BUNDLE_SRC = "https://cdn.morze.tech/rava_bundle.min.js";
+
 function RootLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isAppRoute = APP_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -26,6 +31,24 @@ function RootLayout() {
     sessionStorage.removeItem(SPLASH_KEY);
     setSplashDone(false);
   };
+
+  // Inject the external bundle on every page except login/register; remove it
+  // when navigating onto an auth screen.
+  useEffect(() => {
+    const onAuthPage = AUTH_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+    const existing = document.getElementById(RAVA_BUNDLE_ID);
+    if (onAuthPage) {
+      existing?.remove();
+      return;
+    }
+    if (!existing) {
+      const script = document.createElement("script");
+      script.id = RAVA_BUNDLE_ID;
+      script.src = RAVA_BUNDLE_SRC;
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, [pathname]);
 
   if (isAppRoute) {
     return (

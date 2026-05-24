@@ -21,7 +21,6 @@ let bot = null;
 const awaitingCode = new Set(); // chat ids we expect a code from next
 
 const KICK_INTERVAL_MS = 60_000;
-const INVITE_TTL_SEC = 3600; // personal join link valid for 1 hour
 
 export function startBot() {
   if (!config.telegram.token) {
@@ -147,12 +146,11 @@ async function redeem(msg) {
   let link;
   try {
     // Create the personal invite link FIRST — only burn the code if this succeeds.
-    // It's a join-REQUEST link (no member_limit): the bot approves the request
-    // only for the account that redeemed the code (see approveJoin), so a
-    // forwarded link can't let anyone else in.
+    // It's a join-REQUEST link (no member_limit, no expiry): the bot approves the
+    // request only for the account that redeemed the code (see approveJoin), so a
+    // forwarded link can't let anyone else in — which is why it needn't expire.
     link = await bot.createChatInviteLink(config.telegram.groupId, {
       creates_join_request: true,
-      expire_date: Math.floor(Date.now() / 1000) + INVITE_TTL_SEC,
       name: `RAVA ${user.email}`.slice(0, 32),
     });
   } catch (err) {
@@ -173,7 +171,7 @@ async function redeem(msg) {
   const until = new Date(Date.now() + config.access.durationDays * 86400000);
   await bot.sendMessage(
     msg.chat.id,
-    `✅ Доступ открыт!\n\nВступите в сообщество по персональной ссылке (действует 1 час):\n${link.invite_link}\n\n` +
+    `✅ Доступ открыт!\n\nВступите в сообщество по персональной ссылке:\n${link.invite_link}\n\n` +
       `🔒 Ссылка привязана к вашему аккаунту: заявку на вступление бот подтвердит только с этого Telegram. ` +
       `Пересланная кому-то ещё ссылка не сработает.\n\n` +
       `Доступ активен до ${until.toLocaleDateString("ru-RU")}. По истечении срока вы будете автоматически удалены из группы.`,
