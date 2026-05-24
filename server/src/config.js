@@ -13,6 +13,11 @@ export const config = {
   cookieName: "rava_session",
   cookieMaxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
 
+  // PostgreSQL connection string (see db.js). Defaults to a local instance.
+  db: {
+    url: process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/rava",
+  },
+
   yandex: {
     clientId: process.env.YANDEX_CLIENT_ID || "",
     clientSecret: process.env.YANDEX_CLIENT_SECRET || "",
@@ -55,6 +60,11 @@ config.yandex.configured = Boolean(config.yandex.clientId && config.yandex.clien
 config.yookassa.configured = Boolean(config.yookassa.shopId && config.yookassa.secretKey);
 config.yookassa.demo =
   process.env.YOOKASSA_DEMO !== undefined ? bool(process.env.YOOKASSA_DEMO) : !config.yookassa.configured;
+
+// Mark the session cookie `Secure` only when the app is actually served over
+// HTTPS (derived from APP_URL) — so it still works over http://localhost in a
+// local docker-compose run, and is hardened automatically in real deployments.
+config.cookieSecure = /^https:/i.test(config.appUrl);
 
 if (config.isProd && config.jwtSecret.startsWith("dev-only")) {
   console.warn(

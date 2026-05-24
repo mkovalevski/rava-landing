@@ -29,7 +29,7 @@ export function setAuthCookie(res, user) {
   res.cookie(config.cookieName, signSession(user), {
     httpOnly: true,
     sameSite: "lax",
-    secure: config.isProd,
+    secure: config.cookieSecure,
     maxAge: config.cookieMaxAge,
     path: "/",
   });
@@ -40,23 +40,27 @@ export function clearAuthCookie(res) {
 }
 
 // Resolve the current user from the session cookie, or null.
-export function currentUser(req) {
+export async function currentUser(req) {
   const token = req.cookies?.[config.cookieName];
   if (!token) return null;
   try {
     const { sub } = jwt.verify(token, config.jwtSecret);
-    return store.findById(sub);
+    return await store.findById(sub);
   } catch {
     return null;
   }
 }
 
 // Express middleware: 401 unless authenticated; attaches req.user.
-export function requireAuth(req, res, next) {
-  const user = currentUser(req);
-  if (!user) return res.status(401).json({ error: "Требуется авторизация" });
-  req.user = user;
-  next();
+export async function requireAuth(req, res, next) {
+  try {
+    const user = await currentUser(req);
+    if (!user) return res.status(401).json({ error: "Требуется авторизация" });
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 // Shape sent to the client — never leak the password hash.
@@ -69,7 +73,7 @@ export function publicUser(u) {
     hasPassword: Boolean(u.passwordHash),
     yandexLinked: Boolean(u.yandexId),
     createdAt: u.createdAt,
-    membership: u.membership,
+    membership: u.membership ?? null,
     profile: u.profile,
     education: u.education,
     access: publicAccess(u),

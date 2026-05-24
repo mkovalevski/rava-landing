@@ -28,11 +28,11 @@ authRouter.post("/register", async (req, res) => {
   if (String(password || "").length < 8) {
     return res.status(400).json({ error: "Пароль должен быть не короче 8 символов" });
   }
-  if (store.findByEmail(email)) {
+  if (await store.findByEmail(email)) {
     return res.status(409).json({ error: "Пользователь с таким e-mail уже существует" });
   }
 
-  const user = store.create({
+  const user = await store.create({
     email,
     name,
     passwordHash: await hashPassword(password),
@@ -45,7 +45,7 @@ authRouter.post("/register", async (req, res) => {
 // ── Email + password login ───────────────────────────────────────────────────
 authRouter.post("/login", async (req, res) => {
   const { email, password } = req.body ?? {};
-  const user = store.findByEmail(email);
+  const user = await store.findByEmail(email);
   const ok = user && (await verifyPassword(String(password || ""), user.passwordHash));
 
   if (!ok) return res.status(401).json({ error: "Неверный e-mail или пароль" });
@@ -55,8 +55,8 @@ authRouter.post("/login", async (req, res) => {
 });
 
 // ── Session ───────────────────────────────────────────────────────────────────
-authRouter.get("/me", (req, res) => {
-  const user = currentUser(req);
+authRouter.get("/me", async (req, res) => {
+  const user = await currentUser(req);
   if (!user) return res.status(401).json({ error: "Не авторизован" });
   res.json({ user: publicUser(user) });
 });
@@ -77,7 +77,7 @@ authRouter.post("/password", requireAuth, async (req, res) => {
     const ok = await verifyPassword(String(currentPassword || ""), req.user.passwordHash);
     if (!ok) return res.status(403).json({ error: "Текущий пароль указан неверно" });
   }
-  store.update(req.user.id, { passwordHash: await hashPassword(newPassword) });
+  await store.update(req.user.id, { passwordHash: await hashPassword(newPassword) });
   res.json({ ok: true });
 });
 
@@ -120,7 +120,7 @@ authRouter.get("/yandex/callback", async (req, res) => {
         ? demoIdentity()
         : await fetchYandexIdentity(String(code || ""));
 
-    const user = upsertYandexUser(identity);
+    const user = await upsertYandexUser(identity);
     setAuthCookie(res, user);
     // New Yandex accounts land on the profile with a welcome flag.
     const fresh = Date.now() - new Date(user.createdAt).getTime() < 5000;
@@ -171,12 +171,12 @@ function demoIdentity() {
   };
 }
 
-function upsertYandexUser({ id, email, name }) {
-  let user = store.findByYandexId(id);
+async function upsertYandexUser({ id, email, name }) {
+  const user = await store.findByYandexId(id);
   if (user) return user;
 
   // Link Yandex to an existing local account that shares the e-mail.
-  const byEmail = store.findByEmail(email);
+  const byEmail = await store.findByEmail(email);
   if (byEmail) {
     return store.update(byEmail.id, { yandexId: String(id), provider: byEmail.provider });
   }

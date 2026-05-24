@@ -4,6 +4,7 @@ import express from "express";
 
 import { config } from "./config.js";
 import { startBot } from "./bot.js";
+import { initDb } from "./db.js";
 import { accessRouter } from "./routes/access.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { billingRouter } from "./routes/billing.routes.js";
@@ -46,21 +47,35 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Внутренняя ошибка сервера" });
 });
 
-app.listen(config.port, () => {
-  const mode = config.yandex.configured
-    ? "real credentials"
-    : config.yandex.demo
-      ? "DEMO mode (no credentials needed)"
-      : "disabled";
-  const yooMode = config.yookassa.configured
-    ? "real credentials"
-    : config.yookassa.demo
-      ? "DEMO mode"
-      : "disabled";
-  console.log(`\n  RAVA API → http://localhost:${config.port}`);
-  console.log(`  Yandex OAuth: ${mode}`);
-  console.log(`  YooKassa: ${yooMode}`);
-  console.log(`  Allowed app origin: ${config.appUrl}`);
-  startBot();
-  console.log("");
-});
+function start() {
+  app.listen(config.port, () => {
+    const mode = config.yandex.configured
+      ? "real credentials"
+      : config.yandex.demo
+        ? "DEMO mode (no credentials needed)"
+        : "disabled";
+    const yooMode = config.yookassa.configured
+      ? "real credentials"
+      : config.yookassa.demo
+        ? "DEMO mode"
+        : "disabled";
+    console.log(`\n  RAVA API → http://localhost:${config.port}`);
+    console.log(`  PostgreSQL: connected`);
+    console.log(`  Yandex OAuth: ${mode}`);
+    console.log(`  YooKassa: ${yooMode}`);
+    console.log(`  Allowed app origin: ${config.appUrl}`);
+    startBot();
+    console.log("");
+  });
+}
+
+// Ensure the schema exists before accepting traffic; fail fast if the DB is down.
+initDb()
+  .then(start)
+  .catch((err) => {
+    console.error(
+      "[db] could not initialise PostgreSQL — is it running and DATABASE_URL correct?\n     ",
+      err.message,
+    );
+    process.exit(1);
+  });

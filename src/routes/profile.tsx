@@ -4,7 +4,7 @@ import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/auth/AuthContext";
 import { api, ApiError, type AccessInfo, type AccessResponse, type Profile, type User } from "@/lib/api";
 import { AuthField } from "@/components/auth/AuthField";
-import { MembershipCard } from "@/components/profile/MembershipCard";
+import { MembershipCard, MembershipLocked } from "@/components/profile/MembershipCard";
 
 /* ────────────────────────────────────────────────────────────────────────── */
 
@@ -57,7 +57,7 @@ function ProfilePage() {
             <span className="pf-userchip-avatar">{initialsOf(user.name)}</span>
             <span className="pf-userchip-meta">
               <span className="pf-userchip-name">{user.name}</span>
-              <span className="pf-userchip-tier">{user.membership.tier}</span>
+              <span className="pf-userchip-tier">{user.membership?.tier ?? ""}</span>
             </span>
           </div>
           <button className="pf-logout" onClick={() => void logout()}>Выйти</button>
@@ -89,8 +89,17 @@ function ProfilePage() {
               ))}
             </nav>
             <div className="pf-side-note">
-              <span className="mono">RAVA · {user.membership.id}</span>
-              <p>Член с {fmtDate(user.membership.since)}</p>
+              {user.membership ? (
+                <>
+                  <span className="mono">RAVA · {user.membership.id}</span>
+                  <p>Член с {fmtDate(user.membership.since)}</p>
+                </>
+              ) : (
+                <>
+                  <span className="mono">RAVA · ····</span>
+                  <p>Членство не оформлено</p>
+                </>
+              )}
             </div>
           </aside>
 
@@ -109,57 +118,19 @@ function ProfilePage() {
 /* ── Overview ─────────────────────────────────────────────────────────────── */
 
 function OverviewTab({ user, onOpenCommunity }: { user: User; onOpenCommunity: () => void }) {
-  const stats = [
-    { num: user.education.courses, lbl: "Курсов пройдено" },
-    { num: user.education.credits, lbl: "Кредитов НМО" },
-    { num: user.education.certificates, lbl: "Сертификатов" },
-  ];
-  const filled = profileCompletion(user.profile);
-
   return (
     <div className="pf-grid">
-      <SectionHead eyebrow="01 — Членство" title="Ваша карта" />
-      <MembershipCard user={user} />
-
-      <div className="pf-stats">
-        {stats.map((s) => (
-          <div key={s.lbl} className="pf-stat">
-            <div className="pf-stat-num">{s.num}</div>
-            <div className="pf-stat-lbl">{s.lbl}</div>
-          </div>
-        ))}
-        <div className="pf-stat pf-stat-progress">
-          <div className="pf-ring" style={{ ["--p" as string]: `${filled}` }}>
-            <span>{filled}%</span>
-          </div>
-          <div className="pf-stat-lbl">Профиль заполнен</div>
-        </div>
-      </div>
-
-      <div className="pf-panel pf-cta-panel">
-        <div>
-          <h3>Telegram-сообщество</h3>
-          <p className="pf-muted">{accessSummaryLine(user.access)}</p>
-        </div>
-        <button className="btn btn-ghost" onClick={onOpenCommunity}>
-          {user.access.status === "active" ? "Открыть раздел" : "Оформить доступ"}
-        </button>
-      </div>
+      <SectionHead
+        eyebrow="01 — Членство"
+        title={user.membership ? "Ваша карта" : "Членская карта"}
+      />
+      {user.membership ? (
+        <MembershipCard user={user} />
+      ) : (
+        <MembershipLocked onGetAccess={onOpenCommunity} />
+      )}
     </div>
   );
-}
-
-function accessSummaryLine(a: AccessInfo) {
-  switch (a.status) {
-    case "active":
-      return `Доступ активен${a.expiresAt ? ` до ${fmtDate(a.expiresAt)}` : ""}.`;
-    case "paid":
-      return "Оплачено — активируйте доступ кодом в боте.";
-    case "expired":
-      return "Доступ истёк. Продлите, чтобы вернуться в группу.";
-    default:
-      return "Закрытая группа специалистов по сосудистому доступу.";
-  }
 }
 
 /* ── Profile ──────────────────────────────────────────────────────────────── */
@@ -362,6 +333,7 @@ const ACCESS_LABEL: Record<AccessInfo["status"], string> = {
 };
 
 function CommunityTab() {
+  const { refresh } = useAuth();
   const [data, setData] = useState<AccessResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -392,13 +364,18 @@ function CommunityTab() {
       try {
         const d = await api.getAccess();
         setData(d);
-        if (d.access.status !== "none" || n >= 6) clearInterval(iv);
+        if (d.access.status !== "none") {
+          void refresh(); // membership was just issued — sync the card
+          clearInterval(iv);
+        } else if (n >= 6) {
+          clearInterval(iv);
+        }
       } catch {
         if (n >= 6) clearInterval(iv);
       }
     }, 1200);
     return () => clearInterval(iv);
-  }, []);
+  }, [refresh]);
 
   async function pay() {
     setBusy(true);
@@ -412,7 +389,9 @@ function CommunityTab() {
         window.location.href = res.confirmationUrl;
         return;
       }
-      await load();
+      // Mock payment settled instantly: refresh access state AND the auth user
+      // so the just-issued membership card appears in the Overview tab.
+      await Promise.all([load(), refresh()]);
       setBusy(false);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Не удалось начать оплату");
@@ -494,7 +473,9 @@ function CommunityTab() {
 
       {access.status === "paid" && (
         <div className="pf-panel">
-          <div className="pf-paid-banner">✓ Оплата прошла. Активируйте доступ кодом в боте.</div>
+          <div className="pf-paid-banner">
+            ✓ Оплата прошла — карта участника выпущена (вкладка «Обзор»). Активируйте доступ кодом в боте.
+          </div>
 
           {code ? (
             <div className="pf-code-block">
@@ -563,12 +544,6 @@ function SectionHead({ eyebrow, title }: { eyebrow: string; title: string }) {
       <h2>{title}</h2>
     </div>
   );
-}
-
-function profileCompletion(p: Profile) {
-  const keys: (keyof Profile)[] = ["specialty", "institution", "city", "phone", "bio"];
-  const done = keys.filter((k) => p[k]?.trim()).length;
-  return Math.round((done / keys.length) * 100);
 }
 
 function fmtDate(iso: string) {

@@ -1,0 +1,11 @@
+node_modules
+dist
+server
+.git
+.idea
+*.tsbuildinfo
+*.log
+.env
+.env.*
+.dockerignore
+docker-compose.yml

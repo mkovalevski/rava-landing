@@ -56,7 +56,7 @@ export type User = {
   hasPassword: boolean;
   yandexLinked: boolean;
   createdAt: string;
-  membership: Membership;
+  membership: Membership | null; // null until the member purchases access
   profile: Profile;
   education: Education;
   access: AccessInfo;

@@ -12,8 +12,8 @@ profileRouter.get("/", (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
-profileRouter.patch("/", (req, res) => {
-  const updated = store.updateProfile(req.user.id, req.body ?? {});
+profileRouter.patch("/", async (req, res) => {
+  const updated = await store.updateProfile(req.user.id, req.body ?? {});
   if (!updated) return res.status(404).json({ error: "Профиль не найден" });
   res.json({ user: publicUser(updated) });
 });

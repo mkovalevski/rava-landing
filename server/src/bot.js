@@ -2,11 +2,12 @@
 // scheduler that removes members once their month is up.
 //
 // Telegram facts this relies on:
-//   • A bot cannot add a user to a group directly. Instead it issues a
-//     single-use invite link (createChatInviteLink, member_limit: 1) that the
-//     user clicks to join.
+//   • A bot cannot add a user to a group directly. Instead it issues a personal
+//     JOIN-REQUEST invite link (createChatInviteLink, creates_join_request) and
+//     approves the request ONLY for the account that redeemed the code — so a
+//     forwarded link can't let a non-payer in.
 //   • The bot must be an ADMIN of the group/supergroup with rights to invite
-//     users and to ban/restrict members.
+//     users (also covers approving join requests) and to ban/restrict members.
 //   • "Kick" = banChatMember + unbanChatMember, so the user can rejoin later if
 //     they pay again.
 
@@ -27,7 +28,16 @@ export function startBot() {
     return null;
   }
 
-  bot = new TelegramBot(config.telegram.token, { polling: true });
+  bot = new TelegramBot(config.telegram.token, {
+    polling: {
+      // chat_join_request is excluded from getUpdates by default — it must be
+      // listed explicitly (and the list is exhaustive, so keep message +
+      // callback_query too). Telegram wants a JSON-serialised array.
+      params: {
+        allowed_updates: JSON.stringify(["message", "callback_query", "chat_join_request"]),
+      },
+    },
+  });
 
   bot.getMe()
     .then((me) => {
@@ -61,12 +71,47 @@ export function startBot() {
     await redeem(msg).catch((err) => console.error("[bot] redeem error:", err.message));
   });
 
+  // The personal invite link is a join-REQUEST link: clicking it doesn't join,
+  // it asks to. We approve only the Telegram account that actually redeemed the
+  // code — so a forwarded link from someone else's account gets declined.
+  bot.on("chat_join_request", (req) => void approveJoin(req));
+
   startKickScheduler();
   return bot;
 }
 
+async function approveJoin(req) {
+  const tgId = req.from.id;
+  const chatId = req.chat.id;
+  // Ignore requests from other chats the bot may be in.
+  if (config.telegram.groupId && String(chatId) !== String(config.telegram.groupId)) return;
+
+  try {
+    const member = await store.findActiveMemberByTelegramId(tgId);
+    const valid = member?.access?.expiresAt && new Date(member.access.expiresAt) > new Date();
+
+    if (valid) {
+      await bot.approveChatJoinRequest(chatId, tgId);
+      console.log(`[bot] approved join: ${member.email} (tg ${tgId})`);
+    } else {
+      await bot.declineChatJoinRequest(chatId, tgId);
+      console.log(`[bot] declined join: tg ${tgId} — no active paid membership`);
+      // Best-effort heads-up (works only if they've ever opened the bot).
+      await bot
+        .sendMessage(
+          tgId,
+          "❌ Заявка на вступление отклонена.\nЭтот Telegram-аккаунт не привязан к оплаченному доступу. " +
+            "Оплатите доступ в личном кабинете, получите код и активируйте его в этом боте кнопкой «Получить доступ».",
+        )
+        .catch(() => {});
+    }
+  } catch (err) {
+    console.error("[bot] chat_join_request failed:", err.message);
+  }
+}
+
 async function redeem(msg) {
-  const code = store.findActiveCode(msg.text);
+  const code = await store.findActiveCode(msg.text);
   if (!code) {
     return bot.sendMessage(
       msg.chat.id,
@@ -74,7 +119,7 @@ async function redeem(msg) {
     );
   }
 
-  const user = store.findById(code.userId);
+  const user = await store.findById(code.userId);
   if (!user || user.access?.status !== "paid") {
     return bot.sendMessage(msg.chat.id, "❌ Подписка не активна. Оплатите доступ в личном кабинете.");
   }
@@ -85,8 +130,11 @@ async function redeem(msg) {
   let link;
   try {
     // Create the personal invite link FIRST — only burn the code if this succeeds.
+    // It's a join-REQUEST link (no member_limit): the bot approves the request
+    // only for the account that redeemed the code (see approveJoin), so a
+    // forwarded link can't let anyone else in.
     link = await bot.createChatInviteLink(config.telegram.groupId, {
-      member_limit: 1,
+      creates_join_request: true,
       expire_date: Math.floor(Date.now() / 1000) + INVITE_TTL_SEC,
       name: `RAVA ${user.email}`.slice(0, 32),
     });
@@ -98,8 +146,8 @@ async function redeem(msg) {
     );
   }
 
-  store.markCodeUsed(code.code, msg.from.id);
-  store.startMembership(
+  await store.markCodeUsed(code.code, msg.from.id);
+  await store.startMembership(
     user.id,
     { telegramId: msg.from.id, telegramUsername: msg.from.username },
     config.access.durationDays,
@@ -109,13 +157,15 @@ async function redeem(msg) {
   await bot.sendMessage(
     msg.chat.id,
     `✅ Доступ открыт!\n\nВступите в сообщество по персональной ссылке (действует 1 час):\n${link.invite_link}\n\n` +
+      `🔒 Ссылка привязана к вашему аккаунту: заявку на вступление бот подтвердит только с этого Telegram. ` +
+      `Пересланная кому-то ещё ссылка не сработает.\n\n` +
       `Доступ активен до ${until.toLocaleDateString("ru-RU")}. По истечении срока вы будете автоматически удалены из группы.`,
   );
 }
 
 function startKickScheduler() {
   const sweep = async () => {
-    for (const user of store.listExpiredMembers()) {
+    for (const user of await store.listExpiredMembers()) {
       const tgId = user.access.telegramId;
       try {
         if (config.telegram.groupId && tgId) {
@@ -128,7 +178,7 @@ function startKickScheduler() {
             )
             .catch(() => {});
         }
-        store.expireAccess(user.id);
+        await store.expireAccess(user.id);
         console.log(`[bot] removed expired member: ${user.email}`);
       } catch (err) {
         console.error(`[bot] failed to remove ${user.email}:`, err.message);

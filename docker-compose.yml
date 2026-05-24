@@ -1,0 +1,52 @@
+# Full RAVA stack: PostgreSQL + backend (API & Telegram bot) + nginx-served SPA.
+#
+#   docker compose up --build        # start everything → http://localhost:8080
+#   docker compose up -d db          # just the DB (for local `npm run dev`)
+#
+# Secrets (Yandex / Telegram / JWT) are read from ./server/.env at runtime.
+# Run EITHER this stack OR a local `npm start` — not both: one Telegram poller
+# per bot token.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: rava
+      POSTGRES_PASSWORD: rava
+      POSTGRES_DB: rava
+    ports:
+      - "55432:5432" # host access for local dev / psql; container talks via :5432
+    volumes:
+      - rava-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rava -d rava"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  server:
+    build: ./server
+    env_file: ./server/.env # JWT_SECRET, YANDEX_*, TELEGRAM_*, YOOKASSA_DEMO …
+    environment:
+      # These override the dev values in .env for the compose network.
+      PORT: 3001
+      DATABASE_URL: postgres://rava:rava@db:5432/rava
+      APP_URL: http://localhost:8080 # single origin (nginx). For real HTTPS prod,
+      # set this to your https:// URL (the cookie becomes Secure automatically)
+      # and point YANDEX_REDIRECT_URI at <APP_URL>/api/auth/yandex/callback.
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: .
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  rava-pgdata:

@@ -2,19 +2,30 @@
 
 Small Express API behind the RAVA landing page: member registration, login,
 **Yandex OAuth**, and profile management. Sessions are signed JWTs stored in an
-`httpOnly` cookie; data lives in a local JSON file (`data/db.json`).
+`httpOnly` cookie; data lives in **PostgreSQL** (see `src/db.js` — the schema is
+created automatically on startup).
 
-> Prototype-grade by design — no real database, no email verification. Swap the
-> JSON store for Postgres/SQLite before going to production.
+> The easiest way to run the whole thing (DB + API + SPA) is the root
+> `docker-compose.yml`: `docker compose up --build` → http://localhost:8080.
 
 ## Run
+
+Needs a PostgreSQL reachable via `DATABASE_URL`. Quick local instance:
+
+```bash
+docker run -d --name rava-pg -e POSTGRES_PASSWORD=rava -e POSTGRES_USER=rava \
+  -e POSTGRES_DB=rava -p 5432:5432 postgres:16
+```
 
 ```bash
 cd server
 npm install
-cp .env.example .env   # optional — sane defaults exist
+cp .env.example .env   # set DATABASE_URL (and any real credentials)
 npm run dev            # http://localhost:3001  (auto-restarts on change)
 ```
+
+Tables are created on first boot — no migration step. The server exits with a
+clear message if the database is unreachable.
 
 Auth and the Telegram access-code flow are **real**; only payment is mocked
 (see below). Email/password registration and login work out of the box. The
@@ -90,32 +101,37 @@ covers a missed webhook.
 ### Telegram bot
 
 A bot **cannot add users to a group directly**, so on a valid code it creates a
-**single-use invite link** (`createChatInviteLink`, `member_limit: 1`, 1-hour
-TTL) and sends it. Requirements:
+personal **join-request invite link** (`createChatInviteLink`,
+`creates_join_request: true`, 1-hour TTL) and sends it. Clicking the link does
+not join — it raises a join request, and the bot **approves it only for the
+Telegram account that redeemed the code** (`chat_join_request` →
+`approveChatJoinRequest`). A link forwarded to anyone else is **declined**, so
+access can't be shared. Requirements:
 
 1. Create the bot in **@BotFather**, set `TELEGRAM_BOT_TOKEN`.
 2. Add it to your **supergroup/channel** and make it **admin** with rights to
-   *invite users via link* and *ban users*.
+   *invite users via link* (this right also lets it approve join requests) and
+   *ban users*.
 3. Set `TELEGRAM_GROUP_ID` (numeric, e.g. `-1001234567890`).
 
 The bot runs in this process via long polling (only start **one** instance per
-token). A 60-second sweep removes members whose window has closed
-(`banChatMember` + `unbanChatMember`, so they can rejoin if they pay again) and
-notifies them.
+token). It requests `chat_join_request` updates explicitly via
+`allowed_updates` — they're excluded from `getUpdates` by default. A 60-second
+sweep removes members whose window has closed (`banChatMember` +
+`unbanChatMember`, so they can rejoin if they pay again) and notifies them.
 
-> Note: the kicked account is the one that *entered the code*. If a user joins
-> the invite link from a different Telegram account, the removal targets the
-> code-entering account.
+## Verifying
 
-## Verifying / seeding
-
-`node scripts/verify-access.mjs` (run with the server stopped) asserts the
-code/redemption/expiry logic and seeds demo users in every state
-(`none@`, `paid@`, `active@clinic.ru`, password `vascular2026`).
+`node --env-file-if-exists=.env scripts/verify-access.mjs` runs an integration
+check of the membership / code / redemption / expiry logic against the
+configured PostgreSQL. It creates a few throwaway users and **deletes them again
+at the end**, so it's safe to re-run.
 
 ## Deployment
 
 The static SPA can go on Vercel, but **this API + bot must run as a long-lived
 Node service** (Railway, Fly, a VPS, …) — not a serverless function, because of
-the polling bot and the in-process scheduler. Set a strong `JWT_SECRET`, real
-provider credentials, and swap the JSON store for a real database.
+the polling bot and the in-process scheduler. Point `DATABASE_URL` at a managed
+PostgreSQL, set a strong `JWT_SECRET`, real provider credentials, and serve over
+HTTPS (the session cookie becomes `Secure` automatically when `APP_URL` is
+`https://…`). Or just run the root `docker-compose.yml` on a host.

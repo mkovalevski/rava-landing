@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Router } from "express";
 
 import { config } from "../config.js";
@@ -19,7 +18,7 @@ billingRouter.post("/checkout", requireAuth, async (req, res) => {
     return res.status(409).json({ error: "Оплата уже прошла — сгенерируйте код доступа в кабинете." });
   }
 
-  const payment = store.createPayment({
+  const payment = await store.createPayment({
     userId: req.user.id,
     amount: PRICE,
     provider: config.yookassa.demo ? "mock" : "yookassa",
@@ -30,8 +29,8 @@ billingRouter.post("/checkout", requireAuth, async (req, res) => {
   // (issue code → redeem in the bot → join the group). Wire real YooKassa by
   // setting YOOKASSA_SHOP_ID / YOOKASSA_SECRET_KEY and YOOKASSA_DEMO=false.
   if (config.yookassa.demo) {
-    store.markPaymentStatus(payment.id, "succeeded");
-    store.grantPaid(req.user.id);
+    await store.markPaymentStatus(payment.id, "succeeded");
+    await store.grantPaid(req.user.id);
     return res.json({ mock: true, paid: true });
   }
 
@@ -43,11 +42,11 @@ billingRouter.post("/checkout", requireAuth, async (req, res) => {
       metadata: { userId: req.user.id, paymentId: payment.id },
       idempotenceKey: payment.id,
     });
-    store.setPaymentExternalId(payment.id, yk.id);
+    await store.setPaymentExternalId(payment.id, yk.id);
     res.json({ demo: false, confirmationUrl: yk.confirmation?.confirmation_url });
   } catch (err) {
     console.error("[billing] checkout failed:", err.message);
-    store.markPaymentStatus(payment.id, "canceled");
+    await store.markPaymentStatus(payment.id, "canceled");
     res.status(502).json({ error: "Платёжный сервис недоступен. Попробуйте позже." });
   }
 });
@@ -59,12 +58,12 @@ billingRouter.post("/webhook", async (req, res) => {
   try {
     const externalId = req.body?.object?.id;
     if (req.body?.event === "payment.succeeded" && externalId) {
-      const local = store.findPaymentByExternalId(externalId);
+      const local = await store.findPaymentByExternalId(externalId);
       if (local && local.status !== "succeeded") {
         const yk = await getPayment(externalId);
         if (yk.status === "succeeded") {
-          store.markPaymentStatus(local.id, "succeeded");
-          store.grantPaid(local.userId);
+          await store.markPaymentStatus(local.id, "succeeded");
+          await store.grantPaid(local.userId);
         }
       }
     }
