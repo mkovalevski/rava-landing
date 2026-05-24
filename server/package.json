@@ -1,0 +1,19 @@
+{
+  "name": "rava-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend for the RAVA landing — auth, Yandex OAuth and member profiles.",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "start": "node --env-file-if-exists=.env src/index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
